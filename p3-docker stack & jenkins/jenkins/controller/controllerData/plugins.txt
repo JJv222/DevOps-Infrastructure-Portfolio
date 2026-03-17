@@ -1,0 +1,12 @@
+configuration-as-code
+git
+docker-plugin:latest
+docker-java-api:latest
+job-dsl
+workflow-aggregator
+ws-cleanup
+docker-workflow
+credentials
+ssh-agent
+slack
+email-ext

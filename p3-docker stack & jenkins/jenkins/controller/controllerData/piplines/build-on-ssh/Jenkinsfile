@@ -1,0 +1,48 @@
+pipeline {
+    agent { label 'Jenkins-Build-Node' }
+
+    environment {
+        MANAGER_IP = "192.168.56.200"
+        WORKER_IP  = "192.168.56.201"
+        TIMESTAMP          = sh(script: 'date +"%Y-%m-%d--%H-%M-%S"', returnStdout: true).trim()
+        TIMESTAMP_FRONTEND = sh(script: 'date +"%Y-%m-%d"', returnStdout: true).trim()
+    }
+    
+    stages {
+        stage('Build & Smoke tests & Deploy to local registry') {
+            steps {
+               sh "bash /vagrant/jenkins/controller/controllerData/scripts/build.sh"
+            }
+        }
+
+        stage('Deploy Docker Stack on Manager Machine') {
+            steps {
+                script {
+                    sshagent(['manager-ssh-key']) {
+                    sh "ssh -o StrictHostKeyChecking=no vagrant@${MANAGER_IP} 'cd / && bash /vagrant/jenkins/controller/controllerData/scripts/deploy-stack.sh'"
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            slackSend (
+                color: '#333333',
+                message: "🏁 Zakończono przetwarzanie: ${env.JOB_NAME} - #${env.BUILD_NUMBER}"
+            )
+        }
+        success {
+            slackSend (
+                color: 'good',
+                message: "✅ Sukces! Build stabilny 🚀\n👉 Zobacz: http://${MANAGER_IP}:8080/job/${env.JOB_NAME}/${env.BUILD_NUMBER}/"
+            )
+        }
+        failure {
+            slackSend (
+                color: 'danger',
+                message: "❌ Błąd! Awaria w pipeline 🚨\n💀 Logi: http://${MANAGER_IP}:8080/job/${env.JOB_NAME}/${env.BUILD_NUMBER}/console"
+            )
+        }
+    }
+}

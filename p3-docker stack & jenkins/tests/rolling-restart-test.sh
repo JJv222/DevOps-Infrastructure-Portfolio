@@ -1,0 +1,1 @@
+docker service update --image 192.168.56.200:5000/cinema-frontend:latest cinema_frontend

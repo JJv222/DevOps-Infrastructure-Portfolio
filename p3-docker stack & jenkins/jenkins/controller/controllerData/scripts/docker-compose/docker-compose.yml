@@ -1,0 +1,41 @@
+services:
+  cinemadb:
+    image: postgres:15
+    container_name: cinemadb
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    ports:
+      - "5432:5432"
+    networks:
+      - cinema-network
+
+  backend:
+    image: cinema-backend:latest
+    container_name: cinema_backend
+    environment:
+      SPRING_APPLICATION_NAME: cinema-backend
+      SPRING_DATASOURCE_URL: jdbc:postgresql://cinemadb:5432/${DATABASE_NAME}
+      SPRING_DATASOURCE_USERNAME: ${DATABASE_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
+    depends_on:
+      - cinemadb
+    ports:
+      - "8090:8080"
+    networks:
+      - cinema-network
+
+  frontend:
+    image: cinema-frontend:latest
+    container_name: cinema_frontend
+    depends_on:
+      - backend
+    ports:
+      - "8091:80"
+    networks:
+      - cinema-network
+
+networks:
+  cinema-network:
+    driver: bridge

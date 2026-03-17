@@ -1,0 +1,65 @@
+version: "3.8"
+
+services:
+  cinemadb:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: cinema
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - cinema-db-data:/var/lib/postgresql/data
+    networks:
+      - cinema-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == worker
+
+  backend:
+    image: ${REGISTRY}/cinema-backend:${VERSION}
+    environment:
+      SPRING_APPLICATION_NAME: cinema-backend
+      SPRING_DATASOURCE_URL: jdbc:postgresql://cinemadb:5432/${DATABASE_NAME}
+      SPRING_DATASOURCE_USERNAME: ${DATABASE_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
+    networks:
+      - cinema-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == worker
+
+  frontend:
+    image: ${REGISTRY}/cinema-frontend:${VERSION}
+    networks:
+      - cinema-overlay
+    ports:
+      - "80:80"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == worker
+
+networks:
+  cinema-overlay:
+    driver: overlay
+    attachable: true
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+
+volumes:
+  cinema-db-data:

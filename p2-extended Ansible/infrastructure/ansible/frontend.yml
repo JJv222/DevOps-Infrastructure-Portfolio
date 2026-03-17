@@ -1,0 +1,69 @@
+---
+- name: Provision Frontend
+  hosts: all
+  become: true
+
+  vars:
+    app_src_dir: /app          # kod źródłowy (shared)
+    app_run_dir: /opt/app      # katalog do build/run (lokalny ext4)
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - rsync
+          - nginx
+        state: present
+
+    - name: Add NodeSource repository for Node.js 20 (idempotent-ish)
+      shell: curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+
+
+    - name: Install Angular CLI globally
+      community.general.npm:
+        name: "@angular/cli"
+        global: yes
+        state: latest
+
+ # SYSTEMD SERVICE DLA DEV SERWERA - NOWE
+    - name: Install systemd service for Angular dev server
+      copy:
+        dest: /etc/systemd/system/frontend.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Cinema Frontend (static build, port {{ app_port }})
+          After=network.target
+
+          [Service]
+          User=vagrant
+          WorkingDirectory=/opt/cinema/frontend/frontend/browser
+          Environment=API_URL=http://{{ backend_host }}:{{ backend_port }}
+          ExecStart=/usr/bin/npx serve -s . -l {{ app_port }}
+          Restart=always
+          RestartSec=2
+          StandardOutput=append:/var/log/frontend.log
+          StandardError=append:/var/log/frontend.log
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd and enable+restart service
+      systemd:
+        name: frontend
+        daemon_reload: yes
+        enabled: yes
+        state: restarted

@@ -1,0 +1,145 @@
+pipeline {
+  agent { label 'docker-agent' }
+
+  triggers {
+    cron('*/10 * * * *')
+  }
+
+  environment {
+    MACHINE_IP = "192.168.56.200"
+    REGISTRY   = "${MACHINE_IP}:5000"
+    VERSION    = "latest"
+    BACKEND_IP = "${MACHINE_IP}:8090"
+    FRONTEND_IP = "${MACHINE_IP}:8091"
+    TIMESTAMP          = sh(script: 'date +"%Y-%m-%d--%H-%M-%S"', returnStdout: true).trim()
+    TIMESTAMP_FRONTEND = sh(script: 'date +"%Y-%m-%d"', returnStdout: true).trim()
+  }
+
+  stages {
+    stage("========================Download Repositories========================") {
+      steps {
+        cleanWs()
+        dir('frontend') {
+          git branch: 'jenkins-agent',
+              url: 'https://github.com/JA263855/frontend.git',
+              credentialsId: 'github-token'
+        }
+
+        dir('backend') {
+          git branch: 'main',
+              url: 'https://github.com/JA263855/backend.git',
+              credentialsId: 'github-token'
+        }
+      }
+    }
+
+    stage('========================Build Docker Images========================') {
+      steps {
+        sh '''
+          echo ">>> Building BACKEND..."
+          docker build -t cinema-backend:latest ./backend/
+
+          echo ">>> Building FRONTEND..."
+          docker build -t cinema-frontend:latest ./frontend/
+
+          docker images
+        '''
+      }
+    }
+
+    stage('========================Running Local Docker Compose========================') {
+      steps {
+        sh '''
+          cd /scripts
+          
+          bash ./deploy-compose.sh
+          echo "=== Running Local Docker Compose ==="
+          echo "=== Smoke tests ==="
+          sleep 20
+          docker ps
+          if [ "$(curl -fsS "$FRONTEND_IP" 2>/dev/null | grep -oP '(?<=<title>).*?(?=</title>)' || true)" = "Frontend" ]; then
+            echo ">>> Frontend OK"
+          else
+            echo ">>> Frontend does not respond or wrong title"
+            cd ./docker-compose
+            echo "Smoke test FAILED - frontend"
+            docker logs cinema_frontend
+            echo "Smoke test FAILED - backend"
+            docker logs cinema_backend
+            docker compose rm -sf 
+            exit 1
+          fi
+
+          if curl -s "$BACKEND_IP/api/film/repertoire?date=$TIMESTAMP_FRONTEND" | grep -q '"title":"The Matrix"'; then
+            echo ">>> Backend OK (Matrix found)"
+          else
+            echo ">>> Backend does not respond / Matrix not found, stopping..."
+            echo "Smoke test FAILED"
+            cd ./docker-compose
+            echo "Smoke test FAILED - frontend"
+            docker logs cinema_frontend
+            echo "Smoke test FAILED - backend"
+            docker logs cinema_backend
+            docker compose rm -sf 
+            exit 1
+          fi
+          cd ./docker-compose
+          docker compose rm -sf 
+          cd "$(dirname "$0")"
+          echo ">>> Smoke tests passed."
+        '''
+      }
+    }
+
+    stage('========================Push Docker Images to Local Registry========================') {
+      steps {
+        sh '''
+          echo ">>> Pushing images to registry $REGISTRY ..."
+          docker tag cinema-backend:latest $REGISTRY/cinema-backend:latest
+          docker tag cinema-backend:latest $REGISTRY/cinema-backend:$TIMESTAMP
+          docker push -a  $REGISTRY/cinema-backend
+
+          docker tag cinema-frontend:latest $REGISTRY/cinema-frontend:latest
+          docker tag cinema-frontend:latest $REGISTRY/cinema-frontend:$TIMESTAMP
+          docker push -a  $REGISTRY/cinema-frontend
+
+          echo "=== Checking registry content ==="
+          curl http://$REGISTRY/v2/_catalog
+          curl http://$REGISTRY/v2/cinema-backend/tags/list
+          curl http://$REGISTRY/v2/cinema-frontend/tags/list
+       '''
+      }
+    }
+
+    stage('========================Deploy Docker Stack on Controller Machine========================') {
+      steps {
+        sh '''
+          cd /scripts
+          bash ./deploy-stack.sh
+          echo "=== Deploy Docker Stack on Controller Machine ==="
+        '''
+      }
+    }
+    
+  }
+    post {
+        always {
+            slackSend (
+                color: '#333333',
+                message: "🏁 Zakończono przetwarzanie: ${env.JOB_NAME} - #${env.BUILD_NUMBER}"
+            )
+        }
+        success {
+            slackSend (
+                color: 'good',
+                message: "✅ Sukces! Build stabilny 🚀\n👉 Zobacz: http://${MACHINE_IP}:8080/job/${env.JOB_NAME}/${env.BUILD_NUMBER}/"
+            )
+        }
+        failure {
+            slackSend (
+                color: 'danger',
+                message: "❌ Błąd! Awaria w pipeline 🚨\n💀 Logi: http://${MACHINE_IP}:8080/job/${env.JOB_NAME}/${env.BUILD_NUMBER}/console"
+            )
+        }
+    }
+}

@@ -1,0 +1,96 @@
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              id: "github-token"
+              description: "Github Token"
+              scope: GLOBAL
+              username: "user"
+              password: "${JENKINS_GITHUB_TOKEN}"
+          - string:
+              description: "Slack Integration Token"
+              id: "slack-token"
+              scope: GLOBAL
+              secret: "${JENKINS_SLACK_TOKEN}"
+          - basicSSHUserPrivateKey:
+              scope: GLOBAL
+              id: "worker-ssh-key"
+              username: "vagrant"
+              description: "SSH Key to Worker Node"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${SSH_WORKER1_KEY}"
+          - basicSSHUserPrivateKey:
+              scope: GLOBAL
+              id: "manager-ssh-key"
+              username: "vagrant"
+              description: "SSH Key to Manager Node"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${SSH_MANAGER_KEY}"
+jenkins:
+  systemMessage: "Jenkins uruchomiony automatycznie w Docker Swarm"
+  numExecutors: 0
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  nodes:
+    - permanent:
+        labelString: Jenkins-Build-Node
+        launcher:
+          ssh:
+            credentialsId: worker-ssh-key
+            host: 192.168.56.201
+            port: 22
+            sshHostKeyVerificationStrategy: nonVerifyingKeyVerificationStrategy
+        mode: EXCLUSIVE
+        name: jenkins-build-node
+        nodeDescription: 'Jenkins Build Node on Worker VM'
+        numExecutors: 5
+        remoteFS: /workspace
+        retentionStrategy: always
+
+  clouds:
+    - docker:
+        name: "my-docker-builder"
+        containerCap: 5
+        dockerApi:
+          dockerHost:
+            uri: "unix:///var/run/docker.sock"
+        templates:
+          - name: "docker-agent"
+            labelString: "docker-agent"
+            instanceCapStr: "2"
+            remoteFs: "/workspace"
+            pullStrategy: PULL_NEVER
+            connector:
+              attach:
+                user: "root"
+            dockerTemplateBase:
+              image: "jenkins-agent:latest"
+              mounts:
+                - "type=bind,source=/vagrant/jenkins/controller/controllerData/scripts,target=/scripts"
+                - "type=bind,source=/vagrant/jenkins/controller/controllerData/,target=/piplines"
+                - "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock"
+                - "type=volume,source=jenkins-m2,target=/root/.m2"
+
+unclassified:
+  location:
+    url: "http://jenkins:8080"
+  slackNotifier:
+    botUser: true
+    room: "jenkins-builds"
+    sendAsText: true
+    teamDomain: "devops2025p4c-d8x8500"
+    tokenCredentialId: "slack-token"
+    username: "JenkinsApp"

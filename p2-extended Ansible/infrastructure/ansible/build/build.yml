@@ -1,0 +1,103 @@
+---
+- name: Provision Build Machine
+  hosts: build
+  become: true
+
+  vars:
+    main_dir : "/home/vagrant/build"
+    scripts_dir: "/home/vagrant/scripts"
+    artifacts_dir: "/home/vagrant/build/artifacts"
+    repo_dir: "/home/vagrant/build/repo"
+
+  environment:
+    GITHUB_PAT: "{{ GITHUB_PAT }}"
+    NEXUS_HOST: "{{ nexus_host }}"
+    NEXUS_PORT: "{{ nexus_http_port }}"
+    NEXUS_USER: "{{ nexus_admin_user }}"
+    NEXUS_PASSWORD: "{{ nexus_admin_password }}"
+    NEXUS_REPO: "{{ nexus_raw_repo_name }}"
+    # BACKEND_HOST: "{{ backend_host }}"
+    # FRONTEND_HOST: "{{ frontend_host }}"
+    # DB_HOST: "{{ db_host }}"
+    # DB_PORT: "{{ db_port }}"
+    # DB_NAME: "{{ db_name }}"
+    # DB_USER: "{{ db_user }}"
+    # DB_PASSWORD: "{{ db_password }}"
+
+  tasks:
+    - name: Install packages
+      apt:
+        update_cache: yes
+        name:
+          - git
+          - curl
+          - unzip
+          - tar
+          - ca-certificates
+          - maven
+          - openjdk-21-jdk-headless
+        state: present
+
+    - name: Copy environment variables /etc/profile.d/nexus_env.sh
+      copy:
+        dest: /etc/profile.d/nexus_env.sh
+        mode: '0644'
+        content: |
+          export NEXUS_HOST={{ nexus_host }}
+          export NEXUS_PORT={{ nexus_http_port }}
+          export NEXUS_REPO={{ nexus_raw_repo_name }}
+          export NEXUS_USER={{ nexus_admin_user }}
+          export NEXUS_PASSWORD={{ nexus_admin_password }}
+          export BACKEND_HOST={{ backend_host }}
+          export FRONTEND_HOST={{ frontend_host }}
+          export DB_HOST={{ db_host }}
+          export DB_PORT={{ db_port }}
+          export DB_NAME={{ db_name }}
+          export DB_USER={{ db_user }}
+          export DB_PASSWORD={{ db_password }}
+          export FRONTEND_PORT={{ frontend_port }}
+          export API_URL="http://{{ backend_host }}:{{ backend_port }}"
+
+    - name: Add NodeSource repository for Node.js 20 (idempotent-ish)
+      shell: curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+        
+    - name: Install Angular CLI globally
+      community.general.npm:
+        name: "@angular/cli"
+        global: yes
+        state: latest
+
+    - name: Ensure build dirs
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: vagrant
+        group: vagrant
+      loop:
+        - "{{ main_dir }}"
+        - "{{ scripts_dir }}"
+        - "{{ artifacts_dir }}"
+        - "{{ repo_dir }}"
+
+    - name: Copy build.sh to build machine
+      copy:
+        src: shared/build.sh
+        dest: /{{scripts_dir}}/build.sh
+        mode: "0755"
+        owner: vagrant
+        group: vagrant
+
+    - name: Copy deploy.sh to build machine
+      copy:
+        src: shared/deploy.sh
+        dest: /{{scripts_dir}}/deploy.sh
+        mode: "0755"
+        owner: vagrant
+        group: vagrant
